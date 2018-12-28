@@ -1,12 +1,17 @@
 import os
+
 from io import BytesIO
 from os import urandom
+from random import seed, random
 from pathlib import Path
 from urllib.request import urlopen, pathname2url
 
 from PIL import Image
+from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+
+import numpy as np
 
 
 def make_bitmap(path, bw=False):
@@ -23,20 +28,116 @@ def make_bitmap(path, bw=False):
     return bmap_path
 
 
-def triple_des_encrypt(im, key):
-    cipher = Cipher(algorithms.TripleDES(key), modes.ECB(), backend=default_backend())
+def pwlcm(x, p):
+    if 0 <= x < p:
+        return x/p
+    if p <= x < 0.5:
+        return (x - p)/(0.5 - p)
+    if 0.5 <= x < 1 - p:
+        return (1 - x - p)/(0.5 - p)
+    if 1 - p <= x <= 1:
+        return (1 - x)/p
+
+
+def cml_encrypt(im, key, iterations=25, cycles=5, log=False):
+    pixels = np.array(im)
+    p, s = key
+    seed(s)
+
+    channels = ['Red', 'Green', 'Blue']  # do logowania
+
+    for i in range(3):
+        if log:
+            print(channels[i])
+
+        pixels_flat = pixels[:, :, i].flat
+        pixel_num = len(pixels_flat)
+        rand = [random() for _ in range(cycles * pixel_num)]
+
+        for cycle in range(1, cycles + 1):
+            for pixel_index in range(pixel_num):
+
+                old_val = pixels_flat[pixel_index]  # do logowania
+
+                pixel_float = pixels_flat[pixel_index - 1]/255
+
+                for _ in range(iterations):
+                    pixel_float = pwlcm(pixel_float, p)
+
+                k = pixel_num * (cycle - 1) + pixel_index
+                pixel_float = (pixel_float + rand[k]) % 1
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] + round(pixel_float * 255)
+
+                if pixels_flat[pixel_index] > 255:
+                    pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
+
+                if log:
+                    print(
+                        f'enc p_index: {pixel_index} cycle: {cycle} new_value: {pixels_flat[pixel_index]} old_value: {old_val} k: {k}')
+
+    return Image.fromarray(pixels)
+
+
+def cml_decrypt(im, key, iterations=25, cycles=5, log=False):
+    pixels = np.array(im)
+    p, s = key
+    seed(s)
+    channels = ['Red', 'Green', 'Blue']  # do logowania
+
+    for i in range(3):
+        if log:
+            print(channels[i])
+
+        pixels_flat = pixels[:, :, i].flat
+        pixel_num = len(pixels_flat)
+        rand = [random() for _ in range(cycles * pixel_num)]
+
+        for cycle in range(cycles, 0, -1):
+            for pixel_index in range(pixel_num - 1, -1, -1):
+
+                old_val = pixels_flat[pixel_index]  # do logowania
+
+                pixel_float = pixels_flat[pixel_index - 1] / 255
+
+                for _ in range(iterations):
+                    pixel_float = pwlcm(pixel_float, p)
+
+                k = pixel_num * (cycle - 1) + pixel_index
+                pixel_float = (pixel_float + rand[k]) % 1
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] - round(pixel_float * 255)
+
+                if pixels_flat[pixel_index] < 0:
+                    pixels_flat[pixel_index] = pixels_flat[pixel_index] + 256
+
+                if log:
+                    print(
+                        f'dec p_index: {pixel_index} cycle: {cycle} new_value: {pixels_flat[pixel_index]} old_value: {old_val} k: {k}')
+
+    return Image.fromarray(pixels)
+
+
+def standard_encrypt(im, algorithm, mode):
+    data = im.tobytes()
+    cipher = Cipher(algorithm, mode, backend=default_backend())
     encryptor = cipher.encryptor()
-    ct = encryptor.update(im.tobytes()) + encryptor.finalize()
+    padder = padding.PKCS7(algorithm.block_size).padder()
 
-    return Image.frombytes('RGB', im.size, ct)
+    padded_data = padder.update(data) + padder.finalize()
+    ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+
+    return Image.frombytes('RGB', im.size, ciphertext)
 
 
-def triple_des_decrypt(im, key):
-    cipher = Cipher(algorithms.TripleDES(key), modes.ECB(), backend=default_backend())
+def standard_decrypt(im, algorithm, mode):
+    data = im.tobytes()
+    cipher = Cipher(algorithm, mode, backend=default_backend())
     decryptor = cipher.decryptor()
-    pt = decryptor.update(im.tobytes()) + decryptor.finalize()
+    padder = padding.PKCS7(algorithm.block_size).padder()
 
-    return Image.frombytes('RGB', im.size, pt)
+    padded_ciphertext = padder.update(data) + padder.finalize()
+    plaintext = decryptor.update(padded_ciphertext) + decryptor.finalize()
+
+    return Image.frombytes('RGB', im.size, plaintext)
 
 
 def image_from_url(url):
@@ -49,56 +150,53 @@ def image_from_url(url):
     return Image.open(img_file)
 
 
-"""
-def convert_to_bin_array(im):
-    def to_bit(data, i):
-        base = int(i/8)
-        shift = i % 8
-        return (data[base] & (1 << shift)) >> shift
-
-    data_bytes = io.BytesIO()
-    im.save(data_bytes, format='BMP')
-    data_bytes = data_bytes.getvalue()
-    return [to_bit(data_bytes, i) for i in range(len(data_bytes) * 8)]
-"""
-
-"""
-def convert_from_bin_array(bin_array, size):
-    data_bytes = []
-    bits_num = len(bin_array)
-    bin_array = [str(i) for i in bin_array]
-    i = 0
-
-    while i < bits_num:
-        data_bytes.append((int("0b" + "".join(bin_array[i:i + 8]), 2)))
-        i += 8
-
-    data_bytes = bytes(data_bytes)
-
-    return Image.frombytes('RGB', size, data_bytes)
-"""
-
-
-def test_encryption(img_url, scheme='3DES', clean=False, show=True):
-    encryption_schemes = {'3DES': {'encrypt': triple_des_encrypt, 'decrypt': triple_des_decrypt, 'key_size': 16}}
-
+def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, log=False, **kwargs):
     path = Path(img_url)
     bmap_path = path.stem + '_bmap.bmp'
 
-    if not os.path.isfile(bmap_path):
+    if path.suffix == 'bmp' and os.path.isfile(path):
+        bmap_path = path
+    elif not os.path.isfile(bmap_path):
         make_bitmap(img_url)
 
     im = Image.open(bmap_path)
 
-    encrypt = encryption_schemes[scheme]['encrypt']
-    decrypt = encryption_schemes[scheme]['decrypt']
-    key_len = encryption_schemes[scheme]['key_size']
+    if scheme == '3DES_ECB':
+        key = urandom(16)
+        enc_im = standard_encrypt(im, algorithms.TripleDES(key), modes.ECB())
+        dec_im = standard_decrypt(enc_im, algorithms.TripleDES(key), modes.ECB())
+    elif scheme == '3DES_CBC':
+        key = urandom(16)
+        iv = urandom(8)
+        enc_im = standard_encrypt(im, algorithms.TripleDES(key), modes.CBC(iv))
+        dec_im = standard_decrypt(enc_im, algorithms.TripleDES(key), modes.CBC(iv))
+    elif scheme == 'AES_ECB':
+        key = urandom(16)
+        enc_im = standard_encrypt(im, algorithms.AES(key), modes.ECB())
+        dec_im = standard_decrypt(enc_im, algorithms.AES(key), modes.ECB())
+    elif scheme == 'AES_CBC':
+        key = urandom(16)
+        iv = urandom(16)
+        enc_im = standard_encrypt(im, algorithms.AES(key), modes.CBC(iv))
+        dec_im = standard_decrypt(enc_im, algorithms.AES(key), modes.CBC(iv))
+    elif scheme == 'CML':
+        if kwargs.get('key') is not None:
+            key = kwargs['key']
+        else:
+            key = 0.3, urandom(4)
+        if kwargs.get('cycles') is not None:
+            cycles = kwargs['cycles']
+        else:
+            cycles = 5
+        if kwargs.get('iterations') is not None:
+            iterations = kwargs['iterations']
+        else:
+            iterations = 25
 
-    key = urandom(key_len)
-
-    enc_im = encrypt(im, key)
-
-    dec_im = decrypt(enc_im, key)
+        enc_im = cml_encrypt(im, key, cycles=cycles, iterations=iterations, log=log)
+        dec_im = cml_decrypt(enc_im, key, cycles=cycles, iterations=iterations, log=log)
+    else:
+        raise Exception('Invalid encryption scheme')
 
     if show:
         im.show()
@@ -111,10 +209,12 @@ def test_encryption(img_url, scheme='3DES', clean=False, show=True):
 
 
 if __name__ == '__main__':
-    art_piece_url = 'https://scontent-frx5-1.xx.fbcdn.net/v/t1.15752-9/48381993_2910354935642160_243018625521287168_n.jpg?_nc_cat=103&_nc_ht=scontent-frx5-1.xx&oh=aff0bf4efe83872371eab8e5b122846f&oe=5CA0A95E'
-    pit_url = 'https://m.media-amazon.com/images/M/MV5BMjE2OTIwMzE0MF5BMl5BanBnXkFtZTcwNjgyNjg0OQ@@._V1_.jpg'
-    # im = image_from_url(pit_url)
-    # im.show()
+    url_dict = {'art_piece': 'https://scontent-frx5-1.xx.fbcdn.net/v/t1.15752-9'
+                             '/48381993_2910354935642160_243018625521287168_n.jpg?_nc_cat=103&_nc_ht=scontent'
+                             '-frx5-1.xx&oh=aff0bf4efe83872371eab8e5b122846f&oe=5CA0A95E',
+                'pit': 'https://m.media-amazon.com/images/M/MV5BMjE2OTIwMzE0MF5BMl5BanBnXkFtZTcwNjgyNjg0OQ@@._V1_'
+                       '.jpg',
+                'hacker': 'https://pbs.twimg.com/media/CnwWR8HXgAAToWA.jpg',
+                'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg'}
 
-    test_encryption(art_piece_url)
-
+    test_encryption(url_dict['bog'], scheme='CML', iterations=25, cycles=5, log=False)

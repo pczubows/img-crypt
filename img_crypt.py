@@ -6,6 +6,7 @@ from random import seed, random
 from pathlib import Path
 from urllib.request import urlopen, pathname2url
 from threading import Thread, Event
+from multiprocessing import Process
 
 from PIL import Image
 from cryptography.hazmat.primitives import padding
@@ -150,7 +151,7 @@ def cml_para_decrypt_channel(channel, p, iterations, cycles, prng_finished):
                 pixels_flat[pixel_index] = pixels_flat[pixel_index] + 256
 
 
-def cml_para_encrypt(im, key, iterations=25, cycles=5):
+def cml_para_thread_encrypt(im, key, iterations=25, cycles=5):
     pixels = np.array(im)
     p, s = key
     seed(s)
@@ -170,7 +171,7 @@ def cml_para_encrypt(im, key, iterations=25, cycles=5):
     return Image.fromarray(pixels)
 
 
-def cml_para_decrypt(im, key, iterations=25, cycles=5):
+def cml_para_thread_decrypt(im, key, iterations=25, cycles=5):
     pixels = np.array(im)
     p, s = key
     seed(s)
@@ -186,6 +187,46 @@ def cml_para_decrypt(im, key, iterations=25, cycles=5):
 
     for t in threads:
         t.join()
+
+    return Image.fromarray(pixels)
+
+
+def cml_para_proc_encrypt(im, key, iterations=25, cycles=5):
+    pixels = np.array(im)
+    p, s = key
+    seed(s)
+    processes = []
+    prng_finished = Event()
+    prng_finished.set()
+
+    for i in range(3):
+        proc = Process(target=cml_para_encrypt_channel, args=(pixels[:, :, i], p, iterations, cycles, prng_finished))
+        processes.append(proc)
+        prng_finished.wait()
+        proc.start()
+
+    for proc in processes:
+        proc.join()
+
+    return Image.fromarray(pixels)
+
+
+def cml_para_proc_decrypt(im, key, iterations=25, cycles=5):
+    pixels = np.array(im)
+    p, s = key
+    seed(s)
+    processes = []
+    prng_finished = Event()
+    prng_finished.set()
+
+    for i in range(3):
+        proc = Process(target=cml_para_decrypt_channel, args=(pixels[:, :, i], p, iterations, cycles, prng_finished))
+        processes.append(proc)
+        prng_finished.wait()
+        proc.start()
+
+    for proc in processes:
+        proc.join()
 
     return Image.fromarray(pixels)
 
@@ -253,7 +294,7 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
         iv = urandom(16)
         enc_im = standard_encrypt(im, algorithms.AES(key), modes.CBC(iv))
         dec_im = standard_decrypt(enc_im, algorithms.AES(key), modes.CBC(iv))
-    elif scheme == 'CML' or 'CML_PARA':
+    elif scheme == 'CML' or 'CML_MULTI_THREAD' or 'CML_MULTI_PROC':
         if kwargs.get('key') is not None:
             key = kwargs['key']
         else:
@@ -270,9 +311,12 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
         if scheme == 'CML':
             enc_im = cml_encrypt(im, key, iterations=iterations, cycles=cycles)
             dec_im = cml_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
+        elif scheme == 'CML_MULTI_THREAD':
+            enc_im = cml_para_thread_encrypt(im, key, iterations=iterations, cycles=cycles)
+            dec_im = cml_para_thread_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
         else:
-            enc_im = cml_para_encrypt(im, key, iterations=iterations, cycles=cycles)
-            dec_im = cml_para_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
+            enc_im = cml_para_proc_encrypt(im, key, iterations=iterations, cycles=cycles)
+            dec_im = cml_para_proc_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
     else:
         raise Exception('Invalid encryption scheme')
 
@@ -295,4 +339,4 @@ if __name__ == '__main__':
                 'hacker': 'https://pbs.twimg.com/media/CnwWR8HXgAAToWA.jpg',
                 'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg'}
 
-    test_encryption('cursed_bmap.bmp', scheme='CML_PARA', iterations=10, cycles=5)
+    test_encryption('cursed_bmap.bmp', scheme='CML_MULTI_PROC', iterations=10, cycles=5)

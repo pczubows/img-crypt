@@ -3,7 +3,7 @@ import timeit
 from img_crypt import test_encryption
 
 
-schemes = {'3DES_ECB', '3DES_CBC', 'AES_ECB', 'AES_CBC'}
+schemes = {'CML', 'CML_MULTI_THREAD'}
 url = 'img/cursed.png'
 
 for scheme in schemes:

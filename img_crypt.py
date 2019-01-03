@@ -39,79 +39,66 @@ def pwlcm(x, p):
         return (1 - x)/p
 
 
-def cml_encrypt(im, key, iterations=25, cycles=5, log=False):
+def cml_encrypt_channel(channel, p, iterations, cycles):
+    pixels_flat = channel.flat
+    pixel_num = len(pixels_flat)
+    rand = [random() for _ in range(cycles * pixel_num)]
+
+    for cycle in range(1, cycles + 1):
+        for pixel_index in range(pixel_num):
+
+            pixel_float = pixels_flat[pixel_index - 1] / 255
+
+            for _ in range(iterations):
+                pixel_float = pwlcm(pixel_float, p)
+
+            k = pixel_num * (cycle - 1) + pixel_index
+            pixel_float = (pixel_float + rand[k]) % 1
+            pixels_flat[pixel_index] = pixels_flat[pixel_index] + round(pixel_float * 255)
+
+            if pixels_flat[pixel_index] > 255:
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
+
+
+def cml_decrypt_channel(channel, p, iterations, cycles):
+    pixels_flat = channel.flat
+    pixel_num = len(pixels_flat)
+    rand = [random() for _ in range(cycles * pixel_num)]
+
+    for cycle in range(cycles, 0, -1):
+        for pixel_index in range(pixel_num - 1, -1, -1):
+
+            pixel_float = pixels_flat[pixel_index - 1] / 255
+
+            for _ in range(iterations):
+                pixel_float = pwlcm(pixel_float, p)
+
+            k = pixel_num * (cycle - 1) + pixel_index
+            pixel_float = (pixel_float + rand[k]) % 1
+            pixels_flat[pixel_index] = pixels_flat[pixel_index] - round(pixel_float * 255)
+
+            if pixels_flat[pixel_index] < 0:
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] + 256
+
+
+def cml_encrypt(im, key, iterations=25, cycles=5):
     pixels = np.array(im)
     p, s = key
     seed(s)
 
-    channels = ['Red', 'Green', 'Blue']  # do logowania
-
     for i in range(3):
-        if log:
-            print(channels[i])
-
-        pixels_flat = pixels[:, :, i].flat
-        pixel_num = len(pixels_flat)
-        rand = [random() for _ in range(cycles * pixel_num)]
-
-        for cycle in range(1, cycles + 1):
-            for pixel_index in range(pixel_num):
-
-                old_val = pixels_flat[pixel_index]  # do logowania
-
-                pixel_float = pixels_flat[pixel_index - 1]/255
-
-                for _ in range(iterations):
-                    pixel_float = pwlcm(pixel_float, p)
-
-                k = pixel_num * (cycle - 1) + pixel_index
-                pixel_float = (pixel_float + rand[k]) % 1
-                pixels_flat[pixel_index] = pixels_flat[pixel_index] + round(pixel_float * 255)
-
-                if pixels_flat[pixel_index] > 255:
-                    pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
-
-                if log:
-                    print(
-                        f'enc p_index: {pixel_index} cycle: {cycle} new_value: {pixels_flat[pixel_index]} old_value: {old_val} k: {k}')
+        cml_encrypt_channel(pixels[:, :, i], p, iterations, cycles)
 
     return Image.fromarray(pixels)
 
 
-def cml_decrypt(im, key, iterations=25, cycles=5, log=False):
+def cml_decrypt(im, key, iterations=25, cycles=5):
     pixels = np.array(im)
     p, s = key
     seed(s)
-    channels = ['Red', 'Green', 'Blue']  # do logowania
 
     for i in range(3):
-        if log:
-            print(channels[i])
-
-        pixels_flat = pixels[:, :, i].flat
-        pixel_num = len(pixels_flat)
-        rand = [random() for _ in range(cycles * pixel_num)]
-
-        for cycle in range(cycles, 0, -1):
-            for pixel_index in range(pixel_num - 1, -1, -1):
-
-                old_val = pixels_flat[pixel_index]  # do logowania
-
-                pixel_float = pixels_flat[pixel_index - 1] / 255
-
-                for _ in range(iterations):
-                    pixel_float = pwlcm(pixel_float, p)
-
-                k = pixel_num * (cycle - 1) + pixel_index
-                pixel_float = (pixel_float + rand[k]) % 1
-                pixels_flat[pixel_index] = pixels_flat[pixel_index] - round(pixel_float * 255)
-
-                if pixels_flat[pixel_index] < 0:
-                    pixels_flat[pixel_index] = pixels_flat[pixel_index] + 256
-
-                if log:
-                    print(
-                        f'dec p_index: {pixel_index} cycle: {cycle} new_value: {pixels_flat[pixel_index]} old_value: {old_val} k: {k}')
+        cml_decrypt_channel(pixels[:, :, i], p, iterations, cycles)
 
     return Image.fromarray(pixels)
 
@@ -150,7 +137,7 @@ def image_from_url(url):
     return Image.open(img_file)
 
 
-def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, log=False, **kwargs):
+def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs):
     path = Path(img_url)
     bmap_path = path.stem + '_bmap.bmp'
 
@@ -193,8 +180,8 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, log=Fals
         else:
             iterations = 25
 
-        enc_im = cml_encrypt(im, key, cycles=cycles, iterations=iterations, log=log)
-        dec_im = cml_decrypt(enc_im, key, cycles=cycles, iterations=iterations, log=log)
+        enc_im = cml_encrypt(im, key, iterations=iterations, cycles=cycles)
+        dec_im = cml_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
     else:
         raise Exception('Invalid encryption scheme')
 
@@ -217,4 +204,4 @@ if __name__ == '__main__':
                 'hacker': 'https://pbs.twimg.com/media/CnwWR8HXgAAToWA.jpg',
                 'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg'}
 
-    test_encryption(url_dict['bog'], scheme='CML', iterations=25, cycles=5, log=False)
+    test_encryption(url_dict['bog'], scheme='CML', iterations=10, cycles=5)

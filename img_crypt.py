@@ -5,7 +5,7 @@ from os import urandom
 from random import seed, random
 from pathlib import Path
 from urllib.request import urlopen, pathname2url
-from threading import Thread
+from threading import Thread, Event
 
 from PIL import Image
 from cryptography.hazmat.primitives import padding
@@ -40,7 +40,7 @@ def pwlcm(x, p):
         return (1 - x)/p
 
 
-def cml_encrypt_channel(channel, p, iterations, cycles, parallel=False):
+def cml_encrypt_channel(channel, p, iterations, cycles):
     pixels_flat = channel.flat
     pixel_num = len(pixels_flat)
     rand = [random() for _ in range(cycles * pixel_num)]
@@ -61,7 +61,7 @@ def cml_encrypt_channel(channel, p, iterations, cycles, parallel=False):
                 pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
 
 
-def cml_decrypt_channel(channel, p, iterations, cycles, parallel=False):
+def cml_decrypt_channel(channel, p, iterations, cycles):
     pixels_flat = channel.flat
     pixel_num = len(pixels_flat)
     rand = [random() for _ in range(cycles * pixel_num)]
@@ -104,15 +104,64 @@ def cml_decrypt(im, key, iterations=25, cycles=5):
     return Image.fromarray(pixels)
 
 
+def cml_para_encrypt_channel(channel, p, iterations, cycles, prng_finished):
+    pixels_flat = channel.flat
+    pixel_num = len(pixels_flat)
+    prng_finished.clear()
+    rand = [random() for _ in range(cycles * pixel_num)]
+    prng_finished.set()
+
+    for cycle in range(1, cycles + 1):
+        for pixel_index in range(pixel_num):
+
+            pixel_float = pixels_flat[pixel_index - 1] / 255
+
+            for _ in range(iterations):
+                pixel_float = pwlcm(pixel_float, p)
+
+            k = pixel_num * (cycle - 1) + pixel_index
+            pixel_float = (pixel_float + rand[k]) % 1
+            pixels_flat[pixel_index] = pixels_flat[pixel_index] + round(pixel_float * 255)
+
+            if pixels_flat[pixel_index] > 255:
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
+
+
+def cml_para_decrypt_channel(channel, p, iterations, cycles, prng_finished):
+    pixels_flat = channel.flat
+    pixel_num = len(pixels_flat)
+    prng_finished.clear()
+    rand = [random() for _ in range(cycles * pixel_num)]
+    prng_finished.set()
+
+    for cycle in range(cycles, 0, -1):
+        for pixel_index in range(pixel_num - 1, -1, -1):
+
+            pixel_float = pixels_flat[pixel_index - 1] / 255
+
+            for _ in range(iterations):
+                pixel_float = pwlcm(pixel_float, p)
+
+            k = pixel_num * (cycle - 1) + pixel_index
+            pixel_float = (pixel_float + rand[k]) % 1
+            pixels_flat[pixel_index] = pixels_flat[pixel_index] - round(pixel_float * 255)
+
+            if pixels_flat[pixel_index] < 0:
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] + 256
+
+
 def cml_para_encrypt(im, key, iterations=25, cycles=5):
     pixels = np.array(im)
     p, s = key
     seed(s)
     threads = []
+    prng_finished = Event()
+    prng_finished.set()
 
     for i in range(3):
-        t = Thread(target=cml_encrypt_channel, args=(pixels[:, :, i], p, iterations, cycles))
+        t = Thread(target=cml_para_encrypt_channel, args=(pixels[:, :, i], p, iterations, cycles, prng_finished))
         threads.append(t)
+        prng_finished.wait()
         t.start()
 
     for t in threads:
@@ -126,10 +175,13 @@ def cml_para_decrypt(im, key, iterations=25, cycles=5):
     p, s = key
     seed(s)
     threads = []
+    prng_finished = Event()
+    prng_finished.set()
 
     for i in range(3):
-        t = Thread(target=cml_decrypt_channel, args=(pixels[:, :, i], p, iterations, cycles))
+        t = Thread(target=cml_para_decrypt_channel, args=(pixels[:, :, i], p, iterations, cycles, prng_finished))
         threads.append(t)
+        prng_finished.wait()
         t.start()
 
     for t in threads:
@@ -243,4 +295,4 @@ if __name__ == '__main__':
                 'hacker': 'https://pbs.twimg.com/media/CnwWR8HXgAAToWA.jpg',
                 'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg'}
 
-    test_encryption(url_dict['bog'], scheme='CML_PARA', iterations=10, cycles=5)
+    test_encryption('cursed_bmap.bmp', scheme='CML_PARA', iterations=10, cycles=5)

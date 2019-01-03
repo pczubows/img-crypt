@@ -5,6 +5,7 @@ from os import urandom
 from random import seed, random
 from pathlib import Path
 from urllib.request import urlopen, pathname2url
+from threading import Thread
 
 from PIL import Image
 from cryptography.hazmat.primitives import padding
@@ -39,7 +40,7 @@ def pwlcm(x, p):
         return (1 - x)/p
 
 
-def cml_encrypt_channel(channel, p, iterations, cycles):
+def cml_encrypt_channel(channel, p, iterations, cycles, parallel=False):
     pixels_flat = channel.flat
     pixel_num = len(pixels_flat)
     rand = [random() for _ in range(cycles * pixel_num)]
@@ -60,7 +61,7 @@ def cml_encrypt_channel(channel, p, iterations, cycles):
                 pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
 
 
-def cml_decrypt_channel(channel, p, iterations, cycles):
+def cml_decrypt_channel(channel, p, iterations, cycles, parallel=False):
     pixels_flat = channel.flat
     pixel_num = len(pixels_flat)
     rand = [random() for _ in range(cycles * pixel_num)]
@@ -99,6 +100,40 @@ def cml_decrypt(im, key, iterations=25, cycles=5):
 
     for i in range(3):
         cml_decrypt_channel(pixels[:, :, i], p, iterations, cycles)
+
+    return Image.fromarray(pixels)
+
+
+def cml_para_encrypt(im, key, iterations=25, cycles=5):
+    pixels = np.array(im)
+    p, s = key
+    seed(s)
+    threads = []
+
+    for i in range(3):
+        t = Thread(target=cml_encrypt_channel, args=(pixels[:, :, i], p, iterations, cycles))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    return Image.fromarray(pixels)
+
+
+def cml_para_decrypt(im, key, iterations=25, cycles=5):
+    pixels = np.array(im)
+    p, s = key
+    seed(s)
+    threads = []
+
+    for i in range(3):
+        t = Thread(target=cml_decrypt_channel, args=(pixels[:, :, i], p, iterations, cycles))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
 
     return Image.fromarray(pixels)
 
@@ -166,7 +201,7 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
         iv = urandom(16)
         enc_im = standard_encrypt(im, algorithms.AES(key), modes.CBC(iv))
         dec_im = standard_decrypt(enc_im, algorithms.AES(key), modes.CBC(iv))
-    elif scheme == 'CML':
+    elif scheme == 'CML' or 'CML_PARA':
         if kwargs.get('key') is not None:
             key = kwargs['key']
         else:
@@ -180,8 +215,12 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
         else:
             iterations = 25
 
-        enc_im = cml_encrypt(im, key, iterations=iterations, cycles=cycles)
-        dec_im = cml_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
+        if scheme == 'CML':
+            enc_im = cml_encrypt(im, key, iterations=iterations, cycles=cycles)
+            dec_im = cml_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
+        else:
+            enc_im = cml_para_encrypt(im, key, iterations=iterations, cycles=cycles)
+            dec_im = cml_para_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
     else:
         raise Exception('Invalid encryption scheme')
 
@@ -204,4 +243,4 @@ if __name__ == '__main__':
                 'hacker': 'https://pbs.twimg.com/media/CnwWR8HXgAAToWA.jpg',
                 'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg'}
 
-    test_encryption(url_dict['bog'], scheme='CML', iterations=10, cycles=5)
+    test_encryption(url_dict['bog'], scheme='CML_PARA', iterations=10, cycles=5)

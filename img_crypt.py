@@ -6,7 +6,7 @@ from random import seed, random
 from pathlib import Path
 from urllib.request import urlopen, pathname2url
 from threading import Thread, Event
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 
 from PIL import Image
 from cryptography.hazmat.primitives import padding
@@ -191,44 +191,106 @@ def cml_para_thread_decrypt(im, key, iterations=25, cycles=5):
     return Image.fromarray(pixels)
 
 
-def cml_para_proc_encrypt(im, key, iterations=25, cycles=5):
-    pixels = np.array(im)
-    p, s = key
-    seed(s)
-    processes = []
-    prng_finished = Event()
-    prng_finished.set()
+class MultiprocHandler:
+    def __init__(self):
+        self.queues = [Queue() for _ in range(3)]
 
-    for i in range(3):
-        proc = Process(target=cml_para_encrypt_channel, args=(pixels[:, :, i], p, iterations, cycles, prng_finished))
-        processes.append(proc)
-        prng_finished.wait()
-        proc.start()
+    def cml_proc_encrypt_channel(self, channel_index, channel, rand, p, iterations, cycles):
+        pixels_flat = channel.flat
+        pixel_num = len(pixels_flat)
 
-    for proc in processes:
-        proc.join()
+        for cycle in range(1, cycles + 1):
+            for pixel_index in range(pixel_num):
 
-    return Image.fromarray(pixels)
+                pixel_float = pixels_flat[pixel_index - 1] / 255
 
+                for _ in range(iterations):
+                    pixel_float = pwlcm(pixel_float, p)
 
-def cml_para_proc_decrypt(im, key, iterations=25, cycles=5):
-    pixels = np.array(im)
-    p, s = key
-    seed(s)
-    processes = []
-    prng_finished = Event()
-    prng_finished.set()
+                k = pixel_num * (cycle - 1) + pixel_index
+                pixel_float = (pixel_float + rand[k]) % 1
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] + round(pixel_float * 255)
 
-    for i in range(3):
-        proc = Process(target=cml_para_decrypt_channel, args=(pixels[:, :, i], p, iterations, cycles, prng_finished))
-        processes.append(proc)
-        prng_finished.wait()
-        proc.start()
+                if pixels_flat[pixel_index] > 255:
+                    pixels_flat[pixel_index] = pixels_flat[pixel_index] - 256
 
-    for proc in processes:
-        proc.join()
+        self.queues[channel_index].put(channel)
 
-    return Image.fromarray(pixels)
+    def cml_proc_decrypt_channel(self, channel_index, channel, rand, p, iterations, cycles):
+        pixels_flat = channel.flat
+        pixel_num = len(pixels_flat)
+
+        for cycle in range(cycles, 0, -1):
+            for pixel_index in range(pixel_num - 1, -1, -1):
+
+                pixel_float = pixels_flat[pixel_index - 1] / 255
+
+                for _ in range(iterations):
+                    pixel_float = pwlcm(pixel_float, p)
+
+                k = pixel_num * (cycle - 1) + pixel_index
+                pixel_float = (pixel_float + rand[k]) % 1
+                pixels_flat[pixel_index] = pixels_flat[pixel_index] - round(pixel_float * 255)
+
+                if pixels_flat[pixel_index] < 0:
+                    pixels_flat[pixel_index] = pixels_flat[pixel_index] + 256
+
+        self.queues[channel_index].put(channel)
+
+    def cml_para_proc_encrypt(self, im, key, iterations=25, cycles=5):
+        pixels = np.array(im)
+        channel_size = pixels[:, :, 0].size
+
+        dims = ()
+        x, y = im.size
+        dims += (y, x)
+        dims += (3,)
+
+        new_pixels = np.empty(dims, dtype=np.uint8)
+
+        p, s = key
+        seed(s)
+
+        rand = []
+        for i in range(3):
+            rand.append([random() for _ in range(cycles * channel_size)])
+
+        for i in range(3):
+            proc = Process(target=self.cml_proc_encrypt_channel, args=(i, pixels[:, :, i], rand[i], p, iterations, cycles))
+            proc.start()
+
+        for i in range(3):
+            new_pixels[:, :, i] = self.queues[i].get()
+
+        return Image.fromarray(new_pixels)
+
+    def cml_para_proc_decrypt(self, im, key, iterations=25, cycles=5):
+        pixels = np.array(im)
+        channel_size = pixels[:, :, 0].size
+
+        dims = ()
+        x, y = im.size
+        dims += (y, x)
+        dims += (3,)
+
+        new_pixels = np.empty(dims, dtype=np.uint8)
+
+        p, s = key
+        seed(s)
+
+        rand = []
+
+        for i in range(3):
+            rand.append([random() for _ in range(cycles * channel_size)])
+
+        for i in range(3):
+            proc = Process(target=self.cml_proc_decrypt_channel, args=(i, pixels[:, :, i], rand[i], p, iterations, cycles))
+            proc.start()
+
+        for i in range(3):
+            new_pixels[:, :, i] = self.queues[i].get()
+
+        return Image.fromarray(new_pixels)
 
 
 def standard_encrypt(im, algorithm, mode):
@@ -315,8 +377,9 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
             enc_im = cml_para_thread_encrypt(im, key, iterations=iterations, cycles=cycles)
             dec_im = cml_para_thread_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
         else:
-            enc_im = cml_para_proc_encrypt(im, key, iterations=iterations, cycles=cycles)
-            dec_im = cml_para_proc_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
+            handler = MultiprocHandler()
+            enc_im = handler.cml_para_proc_encrypt(im, key, iterations=iterations, cycles=cycles)
+            dec_im = handler.cml_para_proc_decrypt(enc_im, key, iterations=iterations, cycles=cycles)
     else:
         raise Exception('Invalid encryption scheme')
 
@@ -324,7 +387,6 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
         im.show()
         enc_im.show()
         dec_im.show()
-
     if clean:
         if os.path.isfile(bmap_path):
             os.remove(bmap_path)

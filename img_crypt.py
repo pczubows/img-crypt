@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def make_bitmap(path, bw=False):
@@ -327,7 +328,7 @@ def image_from_url(url):
     return Image.open(img_file)
 
 
-def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs):
+def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, hists=False, **kwargs):
     path = Path(img_url)
     bmap_path = path.stem + '_bmap.bmp'
 
@@ -387,6 +388,9 @@ def test_encryption(img_url, scheme='3DES_ECB', clean=False, show=True, **kwargs
         im.show()
         enc_im.show()
         dec_im.show()
+    if hists:
+        plot_channels(im, f'{path.stem} plain')
+        plot_channels(enc_im, f'{path.stem} {scheme.replace("_", " ").lower()} encrypted')
     if clean:
         if os.path.isfile(bmap_path):
             os.remove(bmap_path)
@@ -460,6 +464,15 @@ def decrypt_file(path, scheme, **kwargs):
     return dec_im
 
 
+def plot_channels(im, title):
+    pixels = np.array(im)
+    channels = [pixels[:, :, i].ravel() for i in range(3)]
+
+    plt.hist(channels, 256, [0, 256], color=['red', 'green', 'blue'])
+    plt.title(title)
+    plt.show()
+
+
 if __name__ == '__main__':
     url_dict = {'art_piece': 'https://scontent-frx5-1.xx.fbcdn.net/v/t1.15752-9'
                              '/48381993_2910354935642160_243018625521287168_n.jpg?_nc_cat=103&_nc_ht=scontent'
@@ -467,6 +480,8 @@ if __name__ == '__main__':
                 'pit': 'https://m.media-amazon.com/images/M/MV5BMjE2OTIwMzE0MF5BMl5BanBnXkFtZTcwNjgyNjg0OQ@@._V1_'
                        '.jpg',
                 'hacker': 'https://pbs.twimg.com/media/CnwWR8HXgAAToWA.jpg',
-                'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg'}
+                'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg',
+                'sultan': 'http://img1.garnek.pl/a.garnek.pl/004/866/4866080_800.0.jpg/sultan.jpg'}
 
-    test_encryption('secret/sultan_bmap.bmp', scheme='CML_MULTI_PROC', iterations=10, cycles=5)
+    test_encryption(url_dict['sultan'], scheme='CML_MULTI_PROC', hists=True, iterations=50, cycles=10)
+    test_encryption(url_dict['sultan'], scheme='3DES_CBC', hists=True)

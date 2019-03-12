@@ -1,10 +1,9 @@
 import timeit
-
 from img_crypt import test_encryption
 
 
-schemes = {'CML', 'CML_MULTI_PROC'}
-url = 'img/small.jpeg'
+schemes = {'CML', 'CML_MULTI_PROC', 'CML_MULTI_THREAD', '3DES_ECB', 'AES_ECB'}
+url = 'ob_bmap.bmp'
 
 for scheme in schemes:
     start = timeit.default_timer()

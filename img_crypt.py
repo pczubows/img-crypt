@@ -483,5 +483,5 @@ if __name__ == '__main__':
                 'bog': 'https://i.kym-cdn.com/photos/images/original/001/396/633/d76.jpg',
                 'sultan': 'http://img1.garnek.pl/a.garnek.pl/004/866/4866080_800.0.jpg/sultan.jpg'}
 
-    test_encryption(url_dict['sultan'], scheme='CML_MULTI_PROC', hists=True, iterations=50, cycles=10)
-    test_encryption(url_dict['sultan'], scheme='3DES_CBC', hists=True)
+    #test_encryption('ob.jpeg', scheme='CML_MULTI_PROC', hists=True, iterations=10, cycles=5)
+    test_encryption(url_dict['pit'], scheme='3DES_ECB', hists=True)

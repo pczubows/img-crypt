@@ -8,7 +8,7 @@ Chosen image is being encrypted and decrypted. When procedure finishes script
 displays image before and after encryption, along with histograms of their respective
 pixel values.
 
-### [speedtest.py](../master/img_crypt/speedtest.py)
+### [speed_test.py](../master/img_crypt/speed_test.py)
 
 Script encrypts and decrypts sample image and prints
 time it took for each scheme available. 
@@ -16,14 +16,14 @@ time it took for each scheme available.
 
 ## Usage
 
-### [imgcrypt.py](../master/img_crypt/imgcrypt.py)
+### imgcrypt.py
 
 ```imgcrypt.py [-h] [-s SCHEME] [-l LOCATOR] [-e EXAMPLE]```
 
 * ```-h, --help```            prints argparse generated help
 * ```-s SCHEME, --scheme SCHEME``` specify encryption scheme. Allowed schemes: ```3DES_ECB,
 3DES_CBC, AES_ECB, AES_CBC, CML, CML_MULTI``` Not case sensitive.
-* ```  -l LOCATOR, --locator LOCATOR ``` specify image to be encrypted, can be path to the localfile or url of an image hosted on internet
+* ```  -l LOCATOR, --locator LOCATOR ``` specify image to be encrypted, can be path to the local file or url of an image hosted on internet
 * ```-e EXAMPLE, --example EXAMPLE``` Name of a example picture for hardcoded url in ```example_urls``` variable. Example picture names: ```obelix ,matterhorn, cat, balloon```.
 
 #### Examples
@@ -40,9 +40,9 @@ Encrypt image referenced by url with AES in CBC mode.
 
 Encrypt specified example image with CML algorithm using multiprocessing.
 
-### [speedtest.py](../master/img_crypt/speedtest.py)
+### speedtest.py
 
-Script takes no parameters since it uses example picture and all availible encryption schemes. 
+Script takes no parameters since it uses example picture and all available encryption schemes. 
 
 ## Encryption schemes
 

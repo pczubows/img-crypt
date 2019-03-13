@@ -59,5 +59,9 @@ For more info on algorithm see [cml.py](../master/img_crypt/cml.py) docstring.
 
 This scheme is much slower than standard ciphers. ```CML_MULTI``` uses multiprocessing module to perform faster encryption/decryption but can still can take up to a minute on bigger pictures.
 
+## Requirements
+
+Python 3.6+ with modules: cryptography, numpy, matplotlib
+
 ## Based on 
 * On improved image encryption scheme based on chaotic map lattices (K. Jastrzębski, Z. Kotulski 2009)

@@ -1,4 +1,13 @@
 def pwlcm(x, p):
+    """Piece wise linear chaotic map
+
+    Parameters:
+        x (float): Map argument
+        p (float): Map control parameter. Should be in range from 0 to 0.5
+
+    Return:
+        float: Map return value
+    """
     if 0 <= x < p:
         return x / p
     if p <= x < 0.5:

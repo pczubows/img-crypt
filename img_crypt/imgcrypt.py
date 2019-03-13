@@ -1,8 +1,20 @@
+"""Img Crypt
+
+Script for testing different image encryption methods. It implements
+traditional stream ciphers and an algorithm designed for image encryption
+based on chaotic map lattices.
+
+Chosen image is being encrypted and decrypted. When procedure finishes script
+displays image before and after encryption, along with histograms of their respective
+pixel values.
+
+Usage is described in README.md
+"""
+
 import os
 
 from argparse import ArgumentParser
 from io import BytesIO
-from pathlib import Path
 from urllib.request import urlopen, pathname2url, urlparse
 
 from PIL import Image
@@ -21,27 +33,41 @@ def image_from_url(locator):
     """Load image from path or url
 
     Parameters:
-        
+        locator (str): Path to the image or url of an image hosted on the internet
+
+    Returns:
+        PIL.Image: Chosen image converted to the Pillow Image object
     """
     if os.path.isfile(locator):
         locator = 'file:' + pathname2url(locator)
     else:
         url_parsed = urlparse(locator)
 
-        if url_parsed.netloc == "":
-            raise ImageLocatorException(f"Wrong image locator {locator}, file does not exist or url is malformed")
+        if url_parsed.netloc == '':
+            raise ImageLocatorException(f'Wrong image locator {locator}, file does not exist or url is malformed')
 
     with urlopen(locator) as f:
         img_file = BytesIO(f.read())
 
     im = Image.open(img_file)
 
-    if im.mode != "RGB":
+    if im.mode != 'RGB':
         im = im.convert('RGB')
 
     return im
 
+
 def standard_encrypt(im, algorithm, mode):
+    """Encrypt image using one the traditional stream ciphers
+
+    Parameters:
+        im (PIL.Image): Image to be encrypted loaded into Pillow Image object
+        algorithm : Cryptography object with stream cipher algorithm
+        mode: Cryptography object with encryption mode
+
+    Returns:
+        PIL.Image: Encrypted image object
+    """
     data = im.tobytes()
     cipher = Cipher(algorithm, mode, backend=default_backend())
     encryptor = cipher.encryptor()
@@ -54,6 +80,16 @@ def standard_encrypt(im, algorithm, mode):
 
 
 def standard_decrypt(im, algorithm, mode):
+    """Decrypt image using one the traditional stream ciphers
+
+    Parameters:
+        im (PIL.Image): Image to be encrypted loaded into Pillow Image object
+        algorithm : Cryptography object with stream cipher algorithm
+        mode: Cryptography object with encryption mode
+
+    Returns:
+        PIL.Image: Decrypted image object
+    """
     data = im.tobytes()
     cipher = Cipher(algorithm, mode, backend=default_backend())
     decryptor = cipher.decryptor()
@@ -65,8 +101,106 @@ def standard_decrypt(im, algorithm, mode):
     return Image.frombytes('RGB', im.size, plaintext)
 
 
-def encrypt_then_decrypt(img_url, scheme, **kwargs):
-    im = image_from_url(img_url)
+def encrypt_image(im, scheme, **kwargs):
+    """Encrypt image with chosen scheme
+
+    Parameters:
+        locator (str): Path or url of chosen image
+        scheme (str): String specifying chosen encryption scheme
+
+    Keyword Arguments:
+        key (bytes | (float, bytes)): Encryption key, length and type depends on the chosen
+            algorithm
+        iv (bytes): Initialization vector for cbc encryption mode
+        iterations (int): number of iterations over single pixel for CML algorithm
+        cycles (int): number of cycles over whole image for cml algorithm
+
+    Returns:
+        PIL.Image: Encrypted image as Pillow Image object
+    """
+    key = kwargs.get('key')
+    iv = kwargs.get('iv')
+    iterations = kwargs.get('iterations')
+    cycles = kwargs.get('cycles')
+
+    if scheme == '3DES_ECB':
+        enc_im = standard_encrypt(im, algorithms.TripleDES(key), modes.ECB())
+    elif scheme == '3DES_CBC':
+        enc_im = standard_encrypt(im, algorithms.TripleDES(key), modes.CBC(iv))
+    elif scheme == 'AES_ECB':
+        enc_im = standard_encrypt(im, algorithms.AES(key), modes.ECB())
+    elif scheme == 'AES_CBC':
+        enc_im = standard_encrypt(im, algorithms.AES(key), modes.CBC(iv))
+    elif scheme == 'CML':
+        enc_im = cml_encrypt(im, key, iterations=iterations, cycles=cycles)
+    elif scheme == 'CML_MULTI':
+        handler = MultiprocHandler()
+        enc_im = handler.multiproc_encrypt(im, key, iterations=iterations, cycles=cycles)
+    else:
+        raise SchemeException('Invalid encryption scheme')
+
+    return enc_im
+
+
+def decrypt_image(im, scheme, **kwargs):
+    """Decrypt image with chosen scheme
+
+    Parameters:
+        locator (str): Path or url of chosen image
+        scheme (str): String specifying chosen encryption scheme
+
+    Keyword Arguments:
+        key (bytes | (float, bytes)): Encryption key, length and type depends on the chosen
+            algorithm
+        iv (bytes): Initialization vector for cbc encryption mode
+        iterations (int): number of iterations over single pixel for CML algorithm
+        cycles (int): number of cycles over whole image for cml algorithm
+
+    Returns:
+        PIL.Image: Decrypted image as Pillow Image object
+    """
+    key = kwargs.get('key')
+    iv = kwargs.get('iv')
+    iterations = kwargs.get('iterations')
+    cycles = kwargs.get('cycles')
+
+    if scheme == '3DES_ECB':
+        dec_im = standard_decrypt(im, algorithms.TripleDES(key), modes.ECB())
+    elif scheme == '3DES_CBC':
+        dec_im = standard_decrypt(im, algorithms.TripleDES(key), modes.CBC(iv))
+    elif scheme == 'AES_ECB':
+        dec_im = standard_decrypt(im, algorithms.AES(key), modes.ECB())
+    elif scheme == 'AES_CBC':
+        dec_im = standard_decrypt(im, algorithms.AES(key), modes.CBC(iv))
+    elif scheme == 'CML_MULTI':
+        handler = MultiprocHandler()
+        dec_im = handler.multiproc_decrypt(im, key, iterations=iterations, cycles=cycles)
+    elif scheme == 'CML':
+        dec_im = cml_decrypt(im, key, iterations=iterations, cycles=cycles)
+    else:
+        raise SchemeException('Invalid decryption scheme')
+
+    return dec_im
+
+
+def encrypt_then_decrypt(locator, scheme, **kwargs):
+    """Perform encryption and decryption consecutively
+
+    Parameters:
+        locator (str): Path or url of chosen image
+        scheme (str): String specifying chosen encryption scheme
+
+    Keyword Arguments:
+        key (bytes | (float, bytes)): Encryption key, length and type depends on the chosen
+            algorithm
+        iv (bytes): Initialization vector for cbc encryption mode
+        iterations (int): number of iterations over single pixel for CML algorithm
+        cycles (int): number of cycles over whole image for cml algorithm
+
+    Returns:
+        (PIL.Image, PIL.Image): Tuple containing decrypted image and encrypted image
+    """
+    im = image_from_url(locator)
 
     enc_im = None
     dec_im = None
@@ -107,57 +241,15 @@ def encrypt_then_decrypt(img_url, scheme, **kwargs):
     return dec_im, enc_im
 
 
-def encrypt_image(im, scheme, **kwargs):
-    key = kwargs.get('key')
-    iv = kwargs.get('iv')
-    iterations = kwargs.get('iterations')
-    cycles = kwargs.get('cycles')
-
-    if scheme == '3DES_ECB':
-        enc_im = standard_encrypt(im, algorithms.TripleDES(key), modes.ECB())
-    elif scheme == '3DES_CBC':
-        enc_im = standard_encrypt(im, algorithms.TripleDES(key), modes.CBC(iv))
-    elif scheme == 'AES_ECB':
-        enc_im = standard_encrypt(im, algorithms.AES(key), modes.ECB())
-    elif scheme == 'AES_CBC':
-        enc_im = standard_encrypt(im, algorithms.AES(key), modes.CBC(iv))
-    elif scheme == 'CML':
-        enc_im = cml_encrypt(im, key, iterations=iterations, cycles=cycles)
-    elif scheme == 'CML_MULTI':
-        handler = MultiprocHandler()
-        enc_im = handler.multiproc_encrypt(im, key, iterations=iterations, cycles=cycles)
-    else:
-        raise SchemeException('Invalid encryption scheme')
-
-    return enc_im
-
-
-def decrypt_image(im, scheme, **kwargs):
-    key = kwargs.get('key')
-    iv = kwargs.get('iv')
-    iterations = kwargs.get('iterations')
-    cycles = kwargs.get('cycles')
-
-    if scheme == '3DES_ECB':
-        dec_im = standard_decrypt(im, algorithms.TripleDES(key), modes.ECB())
-    elif scheme == '3DES_CBC':
-        dec_im = standard_decrypt(im, algorithms.TripleDES(key), modes.CBC(iv))
-    elif scheme == 'AES_ECB':
-        dec_im = standard_decrypt(im, algorithms.AES(key), modes.ECB())
-    elif scheme == 'AES_CBC':
-        dec_im = standard_decrypt(im, algorithms.AES(key), modes.CBC(iv))
-    elif scheme == 'CML_MULTI':
-        handler = MultiprocHandler()
-        dec_im = handler.multiproc_decrypt(im, key, iterations=iterations, cycles=cycles)
-    elif scheme == 'CML':
-        dec_im = cml_decrypt(im, key, iterations=iterations, cycles=cycles)
-    else:
-        raise SchemeException('Invalid decryption scheme')
-
-    return dec_im
-
-
 def plot_channels(dec_im, enc_im, scheme):
+    """Draw histograms of the decrypted and encrypted image
+
+    Parameters:
+        dec_im (PIL.Image): Pillow Image object containing decrypted Image.
+        enc_im (PIL.Image): Pillow Image object containing encrypted Image
+        scheme (str): String specifying encryption scheme
+
+    """
     dec_pixels = np.array(dec_im)
     enc_pixels = np.array(enc_im)
 
@@ -170,11 +262,11 @@ def plot_channels(dec_im, enc_im, scheme):
     hist_dec.hist(dec_channels, **hist_kwargs)
     hist_enc.hist(enc_channels, **hist_kwargs)
     hist_dec.set_title('plain')
-    hist_enc.set_title(f'{scheme.replace("_", " ").lower()} encrypted')
+    hist_enc.set_title(f"{scheme.replace('_', ' ').lower()} encrypted")
     plt.show()
 
 
-# small pictures for quick tests
+# example pictures for tests
 example_urls = {
     'obelix': "https://www.asterix.com/illus/asterix-de-a-a-z/les-personnages/perso/g28b.gif",
     'matterhorn': "https://www.zermatt.ch/extension/portal-zermatt/var/storage/images/media/bibliothek/berge/matterhorn/sicht-aufs-matterhorn-vom-gornergrat/58955-3-ger-DE/Sicht-aufs-Matterhorn-vom-Gornergrat_grid_624x350.jpg",
@@ -185,14 +277,14 @@ example_urls = {
 
 if __name__ == '__main__':
     arg_parser = ArgumentParser()
-    arg_parser.add_argument('-s', '--scheme', type=str, default='3DES_CBC', help="specify encryption scheme"
-                                                             "allowed schemes: 3DES_ECB, 3DES_CBC, AES_ECB, AES_CBC, CML, CML_MULTI")
+    arg_parser.add_argument('-s', '--scheme', type=str, default='3DES_CBC', help='specify encryption scheme'
+                                                             'allowed schemes: 3DES_ECB, 3DES_CBC, AES_ECB, AES_CBC, CML, CML_MULTI')
     arg_parser.add_argument('-l', '--locator', type=str, default=None,
-                            help="specify image to be encrypted, can be path to the local"
-                                 "file or url of an image hosted on internet")
+                            help='specify image to be encrypted, can be path to the local'
+                                 'file or url of an image hosted on internet')
     arg_parser.add_argument('-e', '--example', type=str, default=None,
-                            help=f"Name of example picture to be fetched from internet"
-                                 f"Example names {example_urls.keys()}")
+                            help=f'Name of example picture to be fetched from internet'
+                                 f'Example names {example_urls.keys()}')
 
     cl_args = arg_parser.parse_args()
 
@@ -205,8 +297,8 @@ if __name__ == '__main__':
     elif example in example_urls.keys():
         locator = example_urls[example]
     else:
-        raise ImageLocatorException("No proper image locator specified, please use path to local file"
-                                    "or url of an image hosted on internet")
+        raise ImageLocatorException('No proper image locator specified, please use path to local file'
+                                    'or url of an image hosted on internet')
 
     dec_im, enc_im = encrypt_then_decrypt(locator, scheme)
     dec_im.show()

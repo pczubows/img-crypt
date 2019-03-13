@@ -1,3 +1,9 @@
+"""Speed Test
+
+Script encrypts and decrypts sample image and prints
+time it took for each scheme available.
+"""
+
 import timeit
 from imgcrypt import encrypt_then_decrypt, example_urls
 

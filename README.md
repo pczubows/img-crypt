@@ -61,7 +61,7 @@ This scheme is much slower than standard ciphers. ```CML_MULTI``` uses multiproc
 
 ## Requirements
 
-Python 3.6+ with modules: cryptography, numpy, matplotlib
+Python 3.6+ with modules: pillow, cryptography, numpy, matplotlib
 
 ## Based on 
 * On improved image encryption scheme based on chaotic map lattices (K. Jastrzębski, Z. Kotulski 2009)
